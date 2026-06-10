@@ -1,6 +1,8 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <limits.h>
+#include "fc_output_data.h"
+#include <string.h>
 
 #define INPUT_BETA_MULTIPLIER   1575942400
 #define INPUT_BETA_LEFT_SHIFT   23
@@ -235,11 +237,51 @@ void softmax_fixed(const int8_t* input_data, int8_t* output_data) {
     }
 }
 
+const char* labels[4] = {"silence", "unknown", "yes", "no"};
+
+// the values are slightly off compare to tflite official testbench
+const int8_t expected_no[4]      = {-128, -114, -128,  110};
+const int8_t expected_yes[4]     = {-128, -128,  121, -128};
+const int8_t expected_silence[4] = { -39,  -67,  -67,  -77};
+const int8_t expected_noise[4]   = { 115, -125, -126, -125};
+
+void PrintSoftmaxOutput(const int8_t* output) {
+    for (uint8_t i = 0; i < 4; i++) {
+        float pct = (output[i] + 128) / 256.0f * 100.0f;
+        printf("  %.4f %s\n", pct, labels[i]);
+    }
+}
+
 int main() {
-    //int8_t input[4]  = {-61, 37, -13, 68};
-    //int8_t input[4]  = {-50, -4, 121, -4};
-    int8_t input[4]  = {55, 7, 2, 8};
+    int8_t input_no[4]       = {-61,  37, -13,  68};
+    int8_t input_yes[4]      = {-50,  -4, 121,  -4};
+    int8_t input_silence[4]  = { 18,  14,  14,  12};
+    int8_t input_noise[4]    = { 55,   7,   2,   8};
     int8_t output[4] = {0};
-    softmax_fixed(input, output);
+
+    printf("--- no ---\n");
+    softmax_fixed(input_no, output);
+    PrintSoftmaxOutput(output);
+    int diff = memcmp(output, expected_no, 4);
+    printf("diff no: %d\n", diff);
+
+    printf("--- yes ---\n");
+    softmax_fixed(input_yes, output);
+    PrintSoftmaxOutput(output);
+    diff = memcmp(output, expected_yes, 4);
+    printf("diff yes: %d\n", diff);
+
+    printf("--- silence ---\n");
+    softmax_fixed(input_silence, output);
+    PrintSoftmaxOutput(output);
+    diff = memcmp(output, expected_silence, 4);
+    printf("diff silence: %d\n", diff);
+
+    printf("--- noise ---\n");
+    softmax_fixed(input_noise, output);
+    PrintSoftmaxOutput(output);
+    diff = memcmp(output, expected_noise, 4);
+    printf("diff noise: %d\n", diff);
+
     return 0;
 }
