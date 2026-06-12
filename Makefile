@@ -1,7 +1,7 @@
 CC      := gcc
 CFLAGS  := -Wall -Wextra -O2
 
-TARGETS := conv2d fc softmax
+TARGETS := conv2d fc softmax convert
 
 all: $(TARGETS)
 
@@ -16,5 +16,8 @@ softmax: softmax.c
 
 clean:
 	rm -f $(TARGETS)
+
+convert: convert_input_to_sv.c
+	$(CC) $(CFLAGS) -o $@ $<
 
 .PHONY: all clean
