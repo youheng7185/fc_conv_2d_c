@@ -51,8 +51,6 @@ int run_test(Vmicro_speech_top *dut, VerilatedVcdC *tfp,
     dut->tb_web_i        = 1;
     dut->tb_addr_i       = 0;
     dut->tb_din_i        = 0;
-    dut->out_bram_csb_i  = 1;
-    dut->out_bram_addr_i = 0;
     delay(dut, tfp, 5);
     dut->rst_ni = 1;
     delay(dut, tfp, 5);
