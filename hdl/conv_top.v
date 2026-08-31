@@ -34,10 +34,10 @@ module conv_top (
     localparam STRIDE_H      = 2'd2;
     localparam PAD_W         = 3'd3;
     localparam PAD_H         = 3'd4;
-    localparam INPUT_OFFSET  = 9'sd128;
-    localparam OUTPUT_OFFSET = -8'sd128;
-    localparam ACT_MIN       = -8'sd128;
-    localparam ACT_MAX       = 8'sd127;
+    localparam signed [31:0] INPUT_OFFSET  =  32'sd128;
+    localparam signed [31:0] OUTPUT_OFFSET = -32'sd128;
+    localparam signed [31:0] ACT_MIN       = -32'sd128;
+    localparam signed [31:0] ACT_MAX       =  32'sd127;
 
     // ---------------------------------------------------------------
     // Per-channel LUTs
@@ -194,6 +194,28 @@ module conv_top (
     wire dbg_en = ({out_y, out_x, out_c} < DBG_MAX_PIX);
 
     // ---------------------------------------------------------------
+    // Combinational quantization shift logic (avoids reg-in-always)
+    // ---------------------------------------------------------------
+    reg signed [63:0] qs_after_shift;
+    reg signed [63:0] qs_rounded;
+    reg signed [63:0] qs_shifted;
+    reg signed [31:0] qs_with_offset;
+    reg signed [31:0] qs_clamped;
+    
+    always @(*) begin
+        qs_after_shift  = quant_prod >>> SHIFT[out_c];
+        qs_rounded      = qs_after_shift
+                        + (qs_after_shift[63] ? -64'sd1073741824
+                                              :  64'sd1073741824);
+        qs_shifted      = qs_rounded >>> 31;
+        qs_with_offset  = qs_shifted[31:0] + $signed({{24{OUTPUT_OFFSET[7]}}, OUTPUT_OFFSET});
+    
+        if      (qs_with_offset > 32'sd127)  qs_clamped = 32'sd127;
+        else if (qs_with_offset < -32'sd128) qs_clamped = -32'sd128;
+        else                                 qs_clamped = qs_with_offset;
+    end
+
+    // ---------------------------------------------------------------
     // FSM
     // ---------------------------------------------------------------
     always @(posedge clk_i or negedge rst_ni) begin
@@ -335,48 +357,20 @@ module conv_top (
 
                 // ------------------------------------------------
                 S_QUANT_SHIFT: begin
-                    reg signed [63:0] after_shift;
-                    reg signed [63:0] rounded;
-                    reg signed [63:0] shifted;
-                    reg signed [31:0] with_offset;
-                    reg signed [31:0] clamped;
-
-                    // Step 1: apply per-channel shift first (matching C: prod >>= -shift)
-                    after_shift = quant_prod >>> SHIFT[out_c];
-
-                    // Step 2: round (matching C: prod += (prod>=0) ? 1<<30 : -(1<<30))
-                    rounded = after_shift
-                            + (after_shift[63] ? -64'sd1073741824
-                                                :  64'sd1073741824);
-
-                    // Step 3: final >>31 (matching C: prod >>= 31)
-                    shifted = rounded >>> 31;
-
-                    with_offset = shifted[31:0] + $signed(32'(OUTPUT_OFFSET));
-
-                    if (with_offset > $signed(32'sd127))
-                        clamped = 32'sd127;
-                    else if (with_offset < -$signed(32'sd128))
-                        clamped = -32'sd128;
-                    else
-                        clamped = with_offset;
-
-                    quant_result <= clamped;
-
+                    quant_result <= qs_clamped;
                     if (dbg_en) begin
                         $display("[QSHIFT] out(%0d,%0d,c%0d) | prod=%0d after_shift=%0d rounded=%0d shifted=%0d with_offset=%0d clamped=%0d",
                             out_y, out_x, out_c,
                             $signed(quant_prod),
-                            $signed(after_shift),
-                            $signed(rounded),
-                            $signed(shifted),
-                            $signed(with_offset),
-                            $signed(clamped));
+                            $signed(qs_after_shift),
+                            $signed(qs_rounded),
+                            $signed(qs_shifted),
+                            $signed(qs_with_offset),
+                            $signed(qs_clamped));
                     end
-
                     state <= S_WRITE;
                 end
-
+                
                 // ------------------------------------------------
                 S_WRITE: begin
                     out_word_buf[out_byte_lane*8 +: 8] <= quant_result[7:0];

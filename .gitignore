@@ -6,3 +6,4 @@ tb/obj_dir_conv_top/
 tb/conv_top_waveform.vcd
 tb/micro_speech_top_waveform.vcd
 *.vcd
+fc_conv_vivado_proj/

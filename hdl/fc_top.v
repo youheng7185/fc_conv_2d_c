@@ -103,7 +103,14 @@ module fc_top (
     wire dbg_d  = (d < DBG_MAX_D) ||
                   (d >= DBG_BANK_LO && d <= DBG_BANK_HI) ||
                   (d >= DBG_END_LO);
-
+                  
+    reg signed [31:0] biased;
+    reg signed [63:0] prod;
+    reg signed [63:0] rounded;
+    reg signed [31:0] quant;
+    reg signed [31:0] with_offset;
+    reg signed [31:0] clamped;
+                    
     // ---------------------------------------------------------------
     // FSM
     // ---------------------------------------------------------------
@@ -225,12 +232,6 @@ module fc_top (
 
                 // ------------------------------------------------
                 S_BIAS: begin
-                    reg signed [31:0] biased;
-                    reg signed [63:0] prod;
-                    reg signed [63:0] rounded;
-                    reg signed [31:0] quant;
-                    reg signed [31:0] with_offset;
-                    reg signed [31:0] clamped;
 
                     biased      = acc + BIAS[out_c];
                     prod        = $signed(biased) * $signed(FC_REDUCED_MULT);
