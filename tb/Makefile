@@ -44,7 +44,9 @@ micro_speech_top_SRC = ../hdl/micro_speech_top.v \
 				../hdl/conv_filter_rom.v \
 				../hdl/sky130_sram_2kbyte_1rw1r_32x512_8.v \
 				../hdl/conv_filter_rom.v \
-				../hdl/conv_output_bram.v
+				../hdl/conv_output_bram.v \
+				../hdl/fc_top.v \
+				../hdl/fc_filter_rom.v
 
 $(micro_speech_top_OBJ)/V$(micro_speech_top_TOP).mk: $(micro_speech_top_SRC) $(micro_speech_top_TB)
 	verilator $(VERILATOR_FLAGS) \

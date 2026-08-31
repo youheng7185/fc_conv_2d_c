@@ -7,7 +7,7 @@
 #include <cstdlib>
 
 #include "../conv_input_data.h"
-#include "../fc_output_data.h"
+#include "../conv_output_data.h"
 
 // -------------------------------------------------------
 // Sim time
@@ -42,6 +42,20 @@ void bram_write(Vmicro_speech_top *dut, VerilatedVcdC *tfp,
     dut->tb_web_i  = 1;
     dut->tb_addr_i = 0;
     dut->tb_din_i  = 0;
+}
+
+// -------------------------------------------------------
+// Read one 32-bit word from conv_output_bram via external port
+// 1-cycle read latency (registered BRAM)
+// -------------------------------------------------------
+uint32_t bram_read(Vmicro_speech_top *dut, VerilatedVcdC *tfp, uint16_t addr) {
+    dut->out_bram_csb_i  = 0;
+    dut->out_bram_addr_i = addr & 0x3FF;
+    tick(dut, tfp);                 // latch address, BRAM registers output
+    dut->out_bram_csb_i  = 1;
+    dut->out_bram_addr_i = 0;
+    dut->clk_i = 0; dut->eval();   // sample dout on falling edge (stable)
+    return dut->out_bram_dout_o;
 }
 
 // -------------------------------------------------------
@@ -104,9 +118,9 @@ int main(int argc, char **argv) {
     dut->start_i = 0;
 
     // -------------------------------------------------------
-    // Wait for done_o (conv ~976k + fc ~64k cycles)
+    // Wait for done_o
     // -------------------------------------------------------
-    const uint64_t TIMEOUT = 6500000ULL;
+    const uint64_t TIMEOUT = 5000000ULL;
     uint64_t cycles = 0;
     while (!dut->done_o && cycles < TIMEOUT) {
         tick(dut, tfp);
@@ -126,35 +140,62 @@ int main(int argc, char **argv) {
     tick(dut, tfp);
 
     // -------------------------------------------------------
-    // Sample FC output registers directly — they are live wires
+    // Read back and verify output BRAM
+    // conv2d_output_no: 4000 bytes (25 x 20 x 8)
+    // Packed as 1000 words of 32 bits, little-endian
     // -------------------------------------------------------
-    std::cout << "[TB] Verifying FC output...\n";
+    std::cout << "[TB] Verifying output...\n";
 
-    int8_t got[4] = {
-        (int8_t)dut->fc_out_0,
-        (int8_t)dut->fc_out_1,
-        (int8_t)dut->fc_out_2,
-        (int8_t)dut->fc_out_3,
-    };
+    constexpr int OUTPUT_BYTES = 4000;
+    constexpr int OUTPUT_WORDS = (OUTPUT_BYTES + 3) / 4;  // 1000
 
-    int errors = 0;
-    for (int i = 0; i < 4; i++) {
-        int8_t exp = fc_output_no[i];
-        if (got[i] != exp) {
-            std::cout << "[MISMATCH] fc_out_" << i
-                      << "  exp=" << (int)exp
-                      << "  got=" << (int)got[i] << "\n";
+    int errors   = 0;
+    int mismatches = 0;
+
+    for (int w = 0; w < OUTPUT_WORDS; w++) {
+        uint32_t got = bram_read(dut, tfp, (uint16_t)w);
+
+        // Build expected word from reference array (little-endian)
+        int base = w * 4;
+        uint32_t exp = 0;
+        for (int b = 0; b < 4; b++) {
+            int idx = base + b;
+            uint8_t byte_val = (idx < OUTPUT_BYTES)
+                               ? (uint8_t)conv2d_output_no[idx]
+                               : 0;
+            exp |= ((uint32_t)byte_val << (b * 8));
+        }
+
+        if (got != exp) {
+            mismatches++;
+            // Print per-byte breakdown for first 20 mismatches
+            if (mismatches <= 20) {
+                std::cout << "[MISMATCH] word " << w
+                          << "  exp=0x" << std::hex << exp
+                          << "  got=0x" << got << std::dec << "\n";
+                // Per-byte detail
+                for (int b = 0; b < 4; b++) {
+                    int idx = base + b;
+                    int8_t e = (idx < OUTPUT_BYTES) ? conv2d_output_no[idx] : 0;
+                    int8_t g = (int8_t)((got >> (b*8)) & 0xFF);
+                    if (e != g) {
+                        std::cout << "  byte[" << idx << "] (y="
+                                  << idx/160 << " x=" << (idx%160)/8
+                                  << " c=" << idx%8
+                                  << ")  exp=" << (int)e
+                                  << "  got=" << (int)g << "\n";
+                    }
+                }
+            }
             errors++;
-        } else {
-            std::cout << "[OK]       fc_out_" << i
-                      << "  val=" << (int)got[i] << "\n";
         }
     }
 
     if (errors == 0) {
-        std::cout << "[TB] All 4 FC outputs match. PASS\n";
+        std::cout << "[TB] All " << OUTPUT_WORDS << " words match. PASS\n";
     } else {
-        std::cout << "[TB] " << errors << " FC output mismatches. FAIL\n";
+        std::cout << "[TB] " << errors << " word mismatches out of "
+                  << OUTPUT_WORDS << ". FAIL\n";
     }
 
     // -------------------------------------------------------
