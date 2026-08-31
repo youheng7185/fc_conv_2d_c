@@ -730,15 +730,23 @@ module conv_top (
 
                 // ------------------------------------------------
                 S_QUANT_SHIFT: begin
+                    reg signed [63:0] after_shift;
                     reg signed [63:0] rounded;
                     reg signed [63:0] shifted;
                     reg signed [31:0] with_offset;
                     reg signed [31:0] clamped;
 
-                    rounded = quant_prod
-                              + (quant_prod[63] ? -64'sd1073741824
+                    // Step 1: apply per-channel shift first (matching C: prod >>= -shift)
+                    after_shift = quant_prod >>> SHIFT[out_c];
+
+                    // Step 2: round (matching C: prod += (prod>=0) ? 1<<30 : -(1<<30))
+                    rounded = after_shift
+                            + (after_shift[63] ? -64'sd1073741824
                                                 :  64'sd1073741824);
-                    shifted     = rounded >>> (31 + SHIFT[out_c]);
+
+                    // Step 3: final >>31 (matching C: prod >>= 31)
+                    shifted = rounded >>> 31;
+
                     with_offset = shifted[31:0] + $signed(32'(OUTPUT_OFFSET));
 
                     if (with_offset > $signed(32'sd127))
@@ -751,11 +759,11 @@ module conv_top (
                     quant_result <= clamped;
 
                     if (dbg_en) begin
-                        $display("[QSHIFT] out(%0d,%0d,c%0d) | prod=%0d rounded=%0d shift=%0d shifted=%0d with_offset=%0d clamped=%0d",
+                        $display("[QSHIFT] out(%0d,%0d,c%0d) | prod=%0d after_shift=%0d rounded=%0d shifted=%0d with_offset=%0d clamped=%0d",
                             out_y, out_x, out_c,
                             $signed(quant_prod),
+                            $signed(after_shift),
                             $signed(rounded),
-                            (31 + SHIFT[out_c]),
                             $signed(shifted),
                             $signed(with_offset),
                             $signed(clamped));

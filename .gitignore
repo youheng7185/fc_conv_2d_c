@@ -5,3 +5,4 @@ tb/obj_dir_micro_speech_top/
 tb/obj_dir_conv_top/
 tb/conv_top_waveform.vcd
 tb/micro_speech_top_waveform.vcd
+*.vcd
